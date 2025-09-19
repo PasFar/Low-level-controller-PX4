@@ -1,38 +1,151 @@
 # PX4 Low Level Offboard Control using ROS 2
 
-This package is an example of how to control a [PX4](https://docs.px4.io/main/en/) Multi-rotor Vehicle in [offboard](https://docs.px4.io/main/en/flight_modes/offboard.html) mode with **Low-level commands** through ROS 2. 
+## Setup Instructions
 
-By Low-level commands, we mean that the commands that are sent to PX4 are either:
-1. [Attitude Setpoints](https://docs.px4.io/main/en/msg_docs/VehicleAttitudeSetpoint.html) (Collective Thrust + Attitude), 
+1. **Clone the support utilities repository:**
 
-2. [Thrust](https://docs.px4.io/main/en/msg_docs/VehicleThrustSetpoint.html) + [Torque setpoints](https://docs.px4.io/main/en/msg_docs/VehicleTorqueSetpoint.html)
+   ```bash
+   git clone https://github.com/Prisma-Drone-Team/sitl_utils.git
+   ```
 
-3. [Direct Actuator commands](https://docs.px4.io/main/en/msg_docs/ActuatorMotors.html) (throttles of the motors). 
+2. **Clone the PX4 Autopilot repository:**
 
-You can switch between the different control modes using ROS 2 parameter.
+   ```bash
+   cd sitl_utils
+   git clone https://github.com/PX4/PX4-Autopilot.git --recursive
+   cd PX4-Autopilot
+   git checkout v1.15.4 --f
+   git submodule update --recursive
+   ```
 
-This videos below shows a simulated quadrotor controlled with this package with [Direct Actuator commands](https://docs.px4.io/main/en/msg_docs/ActuatorMotors.html).
+3. **Clone the custom PX4 offboard controller:**
 
-![Direct-Actuator-commands](./instructions/media/iris-sitl-act-cmds.gif)
+   ```bash
+   cd ..
+   mkdir -p ros2_ws-src/pkg
+   cd ros2_ws-src/pkg
+   git clone https://github.com/PasFar/px4_offboard_lowlevel.git
+   ```
 
-# Contents
-## [Package Setup](instructions/package_setup.md)
-Guide on the installation of the low level controller package and its dependencies.
+4. **Set up custom simulation assets and configuration:**
 
-## [Explanation](instructions/explanation.md)
-Explanation of the controller node and where you can implement your own controller.
+   Replace `/PATH/TO/` with the absolute path to your `sitl_utils` folder:
 
-## [Simulation Demo](instructions/demo.md)
-Instructions to run the demo using the included circle trajector generator.
+   ```bash
+   cp /PATH/TO/sitl_utils/ros2_ws-src/pkg/px4_offboard_lowlevel/px4-resources/px4_humble_dockerfile-gazebo-classic_FSR.txt /PATH/TO/sitl_utils/docker/
+   cp /PATH/TO/sitl_utils/ros2_ws-src/pkg/px4_offboard_lowlevel/px4-resources/leo_race_field /PATH/TO/sitl_utils/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/ -r
+   cp /PATH/TO/sitl_utils/ros2_ws-src/pkg/px4_offboard_lowlevel/px4-resources/empty.world /PATH/TO/sitl_utils/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/worlds/
+   cp /PATH/TO/sitl_utils/ros2_ws-src/pkg/px4_offboard_lowlevel/px4-resources/iris /PATH/TO/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/ -r
+   
+   ```
 
-# Acknowledgments
+5. **Build the Docker image:**
 
-This work from the SMART research group in Saxion University of Applied Sciences was supported in part by:
-* Regioorgaan SIA under project **RAAK-PRO MARS4EARTH** (RAAK.PRO03.112):
-* Horizon Europe CSA under project: **AeroSTREAM** (Grant Agreement number: 101071270).
+   ```bash
+   cd /PATH/TO/sitl_utils/docker
+   docker build -t leo-img -f px4_humble_dockerfile-gazebo-classic_FSR.txt .
+   ```
 
-<p align="left">
-  <img src="./instructions/media/logos.png" alt="aerostream-logo"/>
-</p>
+6. **Run the Docker container:**
 
-This package was inspired by many open-source package form the PX4 Community, so would like to thank all the contributors of this great community.
+   ```bash
+   cd /PATH/TO/sitl_utils
+   ./run_cnt.sh
+   ```
+
+7. **Setup PX4 developmnent enviromnent**
+
+    ```bash
+   bash ./PX4-Autopilot/Tools/setup/ubuntu.sh
+   ```
+   
+
+---
+
+## Simulation Instructions
+
+Open **five separate terminals** inside the running Docker container and follow these steps:
+
+### Terminal 1 - Launch PX4 Simulation
+
+Launch PX4 with Gazebo Classic and the custom world:
+
+```bash
+cd PX4-Autopilot
+make px4_sitl gazebo-classic
+```
+
+After the controller is launched, remember to arm and set the offboard mode in this terminal.
+
+### Terminal 2 - Start the microRTPS Agent
+
+Start the communication bridge between ROS 2 and PX4:
+
+```bash
+MicroXRCEAgent udp4 -p 8888
+```
+
+### Terminal 3 - Launch the Offboard Controller
+
+Compile the custom controller and launch it:
+
+```bash
+cd ros2_ws
+. install/setup.bash
+colcon build --packages-select px4_msgs px4_offboard_lowlevel
+. install/setup.bash
+ros2 launch px4_offboard_lowlevel iris_sitl.launch.py
+```
+
+
+### Terminal 4 - Set Controller Parameters
+
+Change the control mode to thrust-and-torque mode:
+
+```bash
+ros2 param set /offboard_controller control_mode 2
+```
+
+This terminal can also be used to tune gains and switch controller types. 
+
+```bash
+ros2 param set /offboard_controller control_gains.controller_type geometric
+```
+
+### Terminal 5 - Launch a Trajectory
+
+Source the workspace:
+
+```bash
+cd ros2_ws
+. install/setup.bash
+```
+
+Then, run a trajectory:
+
+* **Circular trajectory:**
+
+  ```bash
+  ros2 run px4_offboard_lowlevel circle_trajectory_node
+  ```
+
+* **Bernoulli's Lemniscate trajectory:**
+
+  ```bash
+  ros2 run px4_offboard_lowlevel lemniscate_trajectory_node
+  ```
+
+### Troubleshooting
+
+While running the simulation on PX4 and gazebo, if gazebo is not found, execute the following:
+```bash
+sudo apt remove gz-garden -y
+sudo apt-get update -y
+sudo aptitude install -y gazebo libgazebo11 libgazebo-dev
+```
+
+If the models of the custom world are not found, in a terminal:
+```bash
+export GAZEBO_MODEL_PATH="/root/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models/leo_race_field:/root/PX4-Autopilot/Tools/simulation/gazebo-classic/sitl_gazebo-classic/models:$GAZEBO_MODEL_PATH"
+source ~/.bashrc
+```
